@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8" />
+<title>Dispeçeri — KEDS</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<header class="topbar tech">
+  <h1>KEDS — Konsola e Teknikut &amp; Dispeçerisë</h1>
+  <nav>
+    <a href="/technician/">Teknik</a>
+    <a href="/technician/dashboard.html" class="active">Dispeçeri</a>
+    <a href="/">↩ Agjenti Zanor</a>
+  </nav>
+</header>
+<main>
+  <div class="card">
+    <h2>Pamja e Dispeçerit</h2>
+    <p class="hint">
+      Ndërprerjet aktuale dhe raportet në pritje, të grupuara sipas zonës. Një zonë pa ndërprerje të
+      konfirmuar por me disa raporte në pritje (kufizim ≥2) theksohet — kjo është sinjali i një
+      ndërprerjeje ende të paraportuar/pazbuluar. Rifreskohet automatikisht çdo 5 sekonda.
+    </p>
+  </div>
+
+  <div id="areas"></div>
+
+  <div class="card">
+    <h2>Aktiviteti i fundit (audit log)</h2>
+    <table>
+      <thead><tr><th>Koha</th><th>Aktori</th><th>Veprimi</th><th>Detaje</th></tr></thead>
+      <tbody id="audit-rows"><tr><td colspan="4" class="muted">Duke ngarkuar…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="/app.js"></script>
+<script>
+const CLUSTER_THRESHOLD = 2;
+
+function activeOutageFor(outages, area) {
+  const candidates = outages
+    .filter((o) => o.area === area && (o.status === "confirmed" || o.status === "in_progress"))
+    .sort((a, b) => new Date(b.confirmed_at || b.created_at) - new Date(a.confirmed_at || a.created_at));
+  return candidates[0] || null;
+}
+
+function renderAreas(areas, outages, reports) {
+  const container = document.getElementById("areas");
+  container.innerHTML = areas
+    .map((area) => {
+      const active = activeOutageFor(outages, area);
+      const areaReports = reports.filter((r) => r.area === area);
+      const pending = areaReports.filter((r) => r.status === "pending");
+      const matched = areaReports.filter((r) => r.status === "matched");
+      const isCluster = !active && pending.length >= CLUSTER_THRESHOLD;
+
+      const outageBlock = active
+        ? `<span class="badge ${active.status}">${active.status}</span>
+           <span class="muted"> — shkaku: ${escapeHtml(active.cause || "?")}, ETA: ${escapeHtml(active.eta || "?")}</span>`
+        : `<span class="muted">Asnjë ndërprerje aktive e konfirmuar</span>`;
+
+      const pendingRows = pending
+        .map((r) => `<tr><td>${escapeHtml(r.phone)}</td><td>${fmtTime(r.created_at)}</td><td>${fmtTime(r.expires_at)}</td></tr>`)
+        .join("");
+
+      return `<div class="card area-card ${isCluster ? "cluster-warning" : ""}">
+        <h3>${escapeHtml(area)}</h3>
+        <div>${outageBlock}</div>
+        ${
+          isCluster
+            ? `<p style="color:var(--danger); font-weight:600; margin-top:10px;">
+                 ⚠ ${pending.length} raportime në pritje pa asnjë ndërprerje të konfirmuar — mundësi e ndërprerjes së paraportuar.
+               </p>`
+            : ""
+        }
+        <p class="hint" style="margin-top:10px;">
+          Në pritje: ${pending.length} · Të njoftuar (matched): ${matched.length}
+        </p>
+        ${
+          pending.length > 0
+            ? `<table><thead><tr><th>Telefoni</th><th>Krijuar</th><th>Skadon</th></tr></thead><tbody>${pendingRows}</tbody></table>`
+            : ""
+        }
+      </div>`;
+    })
+    .join("");
+}
+
+async function renderAudit() {
+  const rows = await apiGet("/api/audit-log?limit=20");
+  const tbody = document.getElementById("audit-rows");
+  tbody.innerHTML = rows
+    .map((r) => {
+      let details = r.details;
+      try { details = JSON.stringify(JSON.parse(r.details)); } catch (e) { /* leave as-is */ }
+      return `<tr><td>${fmtTime(r.created_at)}</td><td>${escapeHtml(r.actor)}</td><td>${escapeHtml(r.action)}</td><td class="muted">${escapeHtml(details)}</td></tr>`;
+    })
+    .join("");
+}
+
+async function refresh() {
+  const [areas, outages, reports] = await Promise.all([
+    apiGet("/api/areas"),
+    apiGet("/api/outages"),
+    apiGet("/api/pending-reports"),
+  ]);
+  renderAreas(areas, outages, reports);
+  await renderAudit();
+}
+
+(async function init() {
+  await refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8" />
+<title>Faqja e Teknikut — KEDS</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<header class="topbar tech">
+  <h1>KEDS — Konsola e Teknikut &amp; Dispeçerisë</h1>
+  <nav>
+    <a href="/technician/" class="active">Teknik</a>
+    <a href="/technician/dashboard.html">Dispeçeri</a>
+    <a href="/">↩ Agjenti Zanor</a>
+  </nav>
+</header>
+<main>
+  <div class="card">
+    <h2>Raporto / Konfirmo Ndërprerje</h2>
+    <p class="hint">
+      Në prodhim kjo do të vinte nga SCADA/OMS e KEDS-it. Këtu një teknik e fut manualisht.
+      Konfirmimi i një ndërprerjeje aktivizon menjëherë njoftimet SMS te raportet në pritje të asaj zone.
+    </p>
+    <div class="row">
+      <div>
+        <label for="new-area">Zona</label>
+        <select id="new-area"></select>
+      </div>
+      <div>
+        <label for="new-status">Statusi</label>
+        <select id="new-status">
+          <option value="reported">reported</option>
+          <option value="confirmed" selected>confirmed</option>
+          <option value="in_progress">in_progress</option>
+          <option value="restored">restored</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="new-cause">Shkaku</label>
+        <input type="text" id="new-cause" placeholder="p.sh. Defekt në trafostacion" />
+      </div>
+      <div>
+        <label for="new-eta">ETA (kohëzgjatja e pritur)</label>
+        <input type="text" id="new-eta" placeholder="p.sh. 2 orë" />
+      </div>
+    </div>
+    <button id="create-btn">Krijo/Konfirmo ndërprerjen</button>
+    <div class="error" id="create-error"></div>
+    <div class="hint" id="create-result"></div>
+  </div>
+
+  <div class="card">
+    <h2>Ndërprerjet ekzistuese</h2>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Zona</th><th>Shkaku</th><th>Statusi</th><th>ETA</th>
+          <th>Krijuar</th><th>Konfirmuar</th><th>Përditëso</th>
+        </tr>
+      </thead>
+      <tbody id="outage-rows"><tr><td colspan="8" class="muted">Duke ngarkuar…</td></tr></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+
+<script src="/app.js"></script>
+<script>
+const STATUSES = ["reported", "confirmed", "in_progress", "restored"];
+
+async function loadOutages() {
+  const outages = await apiGet("/api/outages");
+  const tbody = document.getElementById("outage-rows");
+  if (outages.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="muted">Asnjë ndërprerje ende.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = outages
+    .map(
+      (o) => `<tr data-id="${o.id}">
+        <td>${o.id}</td>
+        <td>${escapeHtml(o.area)}</td>
+        <td><input type="text" class="edit-cause" value="${escapeHtml(o.cause || "")}" /></td>
+        <td>
+          <select class="edit-status">
+            ${STATUSES.map((s) => `<option value="${s}" ${s === o.status ? "selected" : ""}>${s}</option>`).join("")}
+          </select>
+        </td>
+        <td><input type="text" class="edit-eta" value="${escapeHtml(o.eta || "")}" /></td>
+        <td>${fmtTime(o.created_at)}</td>
+        <td>${fmtTime(o.confirmed_at)}</td>
+        <td><button class="secondary update-btn">Ruaj</button></td>
+      </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll(".update-btn").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      const tr = ev.target.closest("tr");
+      const id = tr.dataset.id;
+      const status = tr.querySelector(".edit-status").value;
+      const cause = tr.querySelector(".edit-cause").value;
+      const eta = tr.querySelector(".edit-eta").value;
+      try {
+        const result = await apiPatch(`/api/outages/${id}`, { status, cause, eta });
+        btn.textContent = `Ruajtur (${result.pending_reports_notified} njoftime)`;
+        setTimeout(() => (btn.textContent = "Ruaj"), 2500);
+        await loadOutages();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  });
+}
+
+async function createOutage() {
+  const errorEl = document.getElementById("create-error");
+  const resultEl = document.getElementById("create-result");
+  errorEl.textContent = "";
+  resultEl.textContent = "";
+  const payload = {
+    area: document.getElementById("new-area").value,
+    status: document.getElementById("new-status").value,
+    cause: document.getElementById("new-cause").value || null,
+    eta: document.getElementById("new-eta").value || null,
+  };
+  try {
+    const result = await apiPost("/api/outages", payload);
+    resultEl.textContent = `Krijuar #${result.id} (${result.status}). Raporte të njoftuara menjëherë: ${result.pending_reports_notified}.`;
+    await loadOutages();
+  } catch (e) {
+    errorEl.textContent = e.message;
+  }
+}
+
+(async function init() {
+  await populateAreaSelect(document.getElementById("new-area"));
+  await loadOutages();
+  document.getElementById("create-btn").addEventListener("click", createOutage);
+})();
+</script>
+</body>
+</html>

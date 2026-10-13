@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="utf-8" />
+<title>KEDS — Agjenti Zanor</title>
+<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>KEDS — Agjenti Zanor (Prototip)</h1>
+  <nav>
+    <a href="/" class="active">Agjenti Zanor</a>
+    <a href="/technician/">Konsola e Teknikut</a>
+    <a href="/docs">API</a>
+  </nav>
+</header>
+<main>
+  <div class="card">
+    <h2>Linja telefonike e KEDS-it</h2>
+    <p class="hint">
+      Ky panel qëndron në vend të linjës reale telefonike + STT + LLM + TTS. Ju "flisni" duke
+      shkruar; agjenti kupton qëllimin, thërret sistemet e KEDS-it (të simuluara) dhe përgjigjet
+      në shqipen standarde. Provoni: <em>"Sa kam për të paguar?"</em> ose
+      <em>"Nuk kam rrymë në Prizren"</em>.
+    </p>
+    <div class="row">
+      <div>
+        <label for="caller">Numri që thërret (caller ID)</label>
+        <select id="caller"></select>
+      </div>
+      <div style="flex:0 0 auto; align-self:flex-end;">
+        <span class="engine-badge" id="engine-badge">…</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="chat" id="chat"></div>
+    <div class="chat-input">
+      <input type="text" id="msg" placeholder="Shkruani mesazhin tuaj…" autocomplete="off" />
+      <button id="send">Dërgo</button>
+      <button id="reset" class="secondary" title="Fillo një thirrje të re">Thirrje e re</button>
+    </div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div class="card">
+    <h2>Çfarë bëri agjenti (gjurma e mjeteve)</h2>
+    <p class="hint">Për demonstrim: thirrjet e mjeteve që agjenti bëri drejt backend-it të KEDS-it.</p>
+    <div id="trace"><span class="muted">—</span></div>
+  </div>
+</main>
+
+<script src="/app.js"></script>
+<script>
+let history = [];      // [{role, content}] text turns
+let customers = [];
+
+function addBubble(role, text) {
+  const chat = document.getElementById("chat");
+  const div = document.createElement("div");
+  div.className = "bubble " + role;
+  div.innerHTML = escapeHtml(text);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function renderTrace(trace) {
+  const el = document.getElementById("trace");
+  if (!trace || trace.length === 0) { el.innerHTML = `<span class="muted">—</span>`; return; }
+  el.innerHTML = trace.map((t) => `
+    <div class="trace-item">
+      <code>${escapeHtml(t.tool)}(${escapeHtml(JSON.stringify(t.input))})</code>
+      <div class="muted">→ ${escapeHtml(JSON.stringify(t.result))}</div>
+    </div>`).join("");
+}
+
+async function loadCustomers() {
+  customers = await apiGet("/api/customers");
+  const sel = document.getElementById("caller");
+  sel.innerHTML = customers
+    .map((c) => `<option value="${escapeHtml(c.phone)}">${escapeHtml(c.name)} — ${escapeHtml(c.phone)} (${escapeHtml(c.area)})</option>`)
+    .join("");
+}
+
+async function loadEngine() {
+  const { mode } = await apiGet("/api/agent/engine");
+  const badge = document.getElementById("engine-badge");
+  if (mode === "real") {
+    badge.textContent = "Motori: Claude (real)";
+    badge.classList.add("real");
+  } else {
+    badge.textContent = "Motori: mock (pa API, pa kosto)";
+    badge.classList.add("mock");
+  }
+}
+
+function resetCall() {
+  history = [];
+  document.getElementById("chat").innerHTML = "";
+  renderTrace([]);
+  addBubble("agent", "Përshëndetje, jam Alba, asistentja automatike e KEDS-it. Si mund t'ju ndihmoj?");
+}
+
+async function send() {
+  const input = document.getElementById("msg");
+  const errorEl = document.getElementById("error");
+  errorEl.textContent = "";
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = "";
+  addBubble("caller", message);
+
+  const caller_phone = document.getElementById("caller").value;
+  try {
+    const res = await apiPost("/api/agent/chat", { caller_phone, message, history });
+    addBubble("agent", res.reply || "…");
+    renderTrace(res.trace);
+    document.getElementById("engine-badge").textContent = "Motori: " + res.engine;
+    history.push({ role: "user", content: message });
+    history.push({ role: "assistant", content: res.reply || "" });
+  } catch (e) {
+    errorEl.textContent = e.message;
+    addBubble("agent", "Më falni, ndodhi një gabim teknik.");
+  }
+}
+
+(async function init() {
+  await loadCustomers();
+  await loadEngine();
+  resetCall();
+  document.getElementById("send").addEventListener("click", send);
+  document.getElementById("reset").addEventListener("click", resetCall);
+  document.getElementById("msg").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") send();
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,14 +1,13 @@
-# KEDS Voice Agent — Prototype
+# AI Voice Agent-Prototype
 
-A design prototype for an AI voice agent system for KEDS (Kosovo's
-electricity distribution company). It deflects high-volume, repetitive
-call-center queries and implements a **pending-outage notification
+A design prototype for an AI voice agent system for an electricity distribution company.
+It deflects high-volume, repetitive call-center queries and implements a **pending-outage notification
 loop**: when a customer calls about an outage nobody has confirmed yet,
 the system stores their number and area, then notifies them by SMS
 once a technician confirms the outage.
 
 This is a bootcamp prototype, not a production system. Everywhere a
-real KEDS integration would exist (billing/CRM, SCADA/OMS, SMS
+real integration would exist (billing/CRM, SCADA/OMS, SMS
 gateway, telephony/STT/TTS), this project uses mock or simulated data
 instead. Those points are called out below.
 
@@ -19,7 +18,7 @@ Built as **two separate front-end apps over one shared backend API**:
 1. **Customer AI voice agent** (`/`) — an LLM-driven chat that stands in
    for the real telephony + STT + LLM + TTS pipeline. The caller types
    (STT would transcribe speech); the agent understands intent, calls
-   KEDS systems (mock) via tool use, and replies in Standard Albanian
+   systems (mock) via tool use, and replies in Standard Albanian
    (TTS would speak it). Runs on the real Claude API when a key is set,
    otherwise on an offline rule-based fallback (see *LLM engine* below).
 2. **Technician & dispatch console** (`/technician/`) — technicians
@@ -50,7 +49,7 @@ The voice agent has two interchangeable engines behind the same
 | Engine | When it runs | Cost |
 |---|---|---|
 | **mock** (rule-based, offline) | Default — whenever `ANTHROPIC_API_KEY` is not set | $0, no network calls |
-| **Claude** (real LLM) | When `ANTHROPIC_API_KEY` is set (or `KEDS_LLM_MODE=real`) | Pay-per-use on your Anthropic account |
+| **Claude** (real LLM) | When `ANTHROPIC_API_KEY` is set (or `COMPANY_LLM_MODE=real`) | Pay-per-use on your Anthropic account |
 
 **By default this project costs nothing to run** — the mock engine
 handles the whole demo offline. To switch on the real Claude agent:
@@ -61,7 +60,7 @@ $env:ANTHROPIC_API_KEY = "sk-ant-..."   # from console.anthropic.com
 $env:KEDS_LLM_MODEL = "<model-id>"
 ```
 
-- The default model is set in `app/agent/service.py`; override it with `KEDS_LLM_MODEL`.
+- The default model is set in `app/agent/service.py`; override it with `COMPANY_LLM_MODEL`.
   Use a model ID from the [Anthropic model list](https://docs.claude.com/en/docs/about-claude/models)
   — an invalid ID makes the real engine fail and the app falls back to mock.
 - The engine badge in the customer app shows which engine is live.
@@ -156,17 +155,17 @@ deterministic): see `GET /api/areas`, or `app/lib/constants.py`.
 | `POST /api/admin/run-cleanup` | Manually trigger expiry sweep (demo convenience) |
 | `GET /api/areas` | Fixed list of valid areas/feeders |
 
-## Mapping to real KEDS architecture
+## Mapping to real electric distribution company architecture
 
 | This prototype | Production equivalent |
 |---|---|
-| SQLite `customers` table | KEDS's real billing/CRM system (customer master data + balance ledger) |
-| SQLite `outages` table, technician `POST/PATCH /api/outages` | KEDS's SCADA/OMS (outage management system) and dispatcher workflow — outage status would flow from the grid, not manual entry |
+| SQLite `customers` table | Company's real billing/CRM system (customer master data + balance ledger) |
+| SQLite `outages` table, technician `POST/PATCH /api/outages` | Company's SCADA/OMS (outage management system) and dispatcher workflow — outage status would flow from the grid, not manual entry |
 | `pending_reports` table + matching logic | A lightweight intake queue the OMS integration subscribes to; consent/opt-in tracking would be a real compliance requirement, not a boolean |
-| `[SMS SIMULATED]` log line | Real SMS gateway (e.g. Twilio, or KEDS's existing bulk-SMS vendor) |
+| `[SMS SIMULATED]` log line | Real SMS gateway (e.g. Twilio, or the company's existing bulk-SMS vendor) |
 | `audit_log` table | Real audit trail / compliance log, likely shipped to a SIEM |
 | Voice agent chat (`/`) — typed text in, Claude/mock + tools, text reply | Real telephony (caller ID) + STT (speech→text) + this same LLM+tools layer + TTS (text→speech) |
-| Agent tool executors (`app/agent/tools.py`) hitting SQLite | Same tool contract, but calling KEDS's real billing API / OMS |
+| Agent tool executors (`app/agent/tools.py`) hitting SQLite | Same tool contract, but calling the company's real billing API / OMS |
 | Fixed `AREAS` list | KEDS's GIS / network topology data (which feeder serves which street) |
 | No auth on any endpoint | Real deployment needs authN/authZ — the technician/dispatch app especially must not be publicly writable |
 
